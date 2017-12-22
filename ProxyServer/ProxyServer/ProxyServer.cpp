@@ -57,68 +57,64 @@ bool goodWeb(string host, fstream &blackList) {
 DWORD WINAPI UserToProxyThread(LPVOID m_SocketPair)
 {
 	SocketPair* socketPair = (SocketPair*)m_SocketPair;
-	socketPair->Client.Attach(socketPair->Proxy);
+	socketPair->Client.Attach(socketPair->Socket);
 
-	char msg[513];
+	char message[513];
 
-	socketPair->Client.Receive(msg, 512);
+	socketPair->Client.Receive(message, 512);
 
 	stringstream s;
 	string hostTemp;
-	s << msg;
+	s << message;
 	s >> hostTemp;
 	s >> hostTemp;
 	string host;
-	if (hostTemp.find(HTTP) != -1)
+	if (hostTemp.find("http://") != -1)
 		host.append(hostTemp, 7, hostTemp.find('/', 7) - 7);
-	else
+	else {
+		socketPair->Client.Close();
+		socketPair->Browser.Close();
+		socketPair->blackList.close();
+		delete socketPair;
 		return 1;
-
+	}
+		
 	// -----------------Chặn trang
 	if (!goodWeb(host, socketPair->blackList))
 	{
-		string chuoicangui = message_403();
-		socketPair->Client.Send(chuoicangui.c_str(), chuoicangui.length()); // gửi thông báo 403 Forbidden
+		string error403 = message_403();
+		socketPair->Client.Send(error403.c_str(), error403.length());
 		socketPair->Client.Close();
+		socketPair->Browser.Close();
 		socketPair->blackList.close();
-
+		delete socketPair;
 		return 1;
 	}
 
-	WCHAR *wchar_host = NULL;
-	wchar_host = stringToWCHAR(host);
-	CSocket client_that;
-	client_that.Create();
-	client_that.Connect(wchar_host, 80);
+	socketPair->Browser.Create();
+	socketPair->Browser.Connect(stringToWCHAR(host), 80);
 
-	string chuoicangui1(msg);
-	string chuoicangui;
-	if (hostTemp.find("http://") != -1) {
-		chuoicangui.append(chuoicangui1, 0, chuoicangui1.find("HTTP"));
-		chuoicangui.erase(4, 7 + host.length());
-		//if (chuoicangui == "GET / ") 
-		//chuoicangui = "GET ";
-		chuoicangui = chuoicangui + "HTTP/1.1\r\nHost: " + host + "\r\nUser-Agent: " + USERAGENT + "\r\n\r\n";
-		chuoicangui.push_back(0);
-	}
+	string bufferSender(message);
 
+	bufferSender.erase(bufferSender.begin() + 4, bufferSender.begin() + 4 + 7 + host.length());
+	bufferSender += "\r\n\r\n";
+	socketPair->Browser.Send(bufferSender.c_str(), bufferSender.length());
 
-	client_that.Send(chuoicangui.c_str(), chuoicangui.length());
-
-	//Nhan tra ve cua chuoi tu trang web muon truy cap
 	while (1)
 	{
-		char chuoinhan[513];
-		memset(chuoinhan, 0, 512);
+		char bufferReceiver[513];
+		memset(bufferReceiver, 0, 512);
 
-		int flag = client_that.Receive(chuoinhan, 512);
+		int flag = socketPair->Browser.Receive(bufferReceiver, 512);
 		if (flag == 0 || flag == -1)
 			break;
 
-		socketPair->Client.Send(chuoinhan, flag);
+		socketPair->Client.Send(bufferReceiver, flag);
 	}
 	socketPair->Client.Close();
-	client_that.Close();
+	socketPair->Browser.Close();
+	socketPair->blackList.close();
+	delete socketPair;
 	return 1;
 }
 
@@ -162,16 +158,18 @@ int main()
 				return FALSE;
 			}
 
-			vector<SocketPair*> vSocketPair;
-			while (1) {
-				vSocketPair.push_back(new SocketPair);
-				vSocketPair[vSocketPair.size() - 1]->blackList.open(BLACKLIST, ios::in);
-				cout << vSocketPair.size(); // ghi ra chơi cho biết 
-				Server.Accept(vSocketPair[vSocketPair.size() - 1]->Client);
 
-				vSocketPair[vSocketPair.size() - 1]->Proxy = vSocketPair[vSocketPair.size() - 1]->Client.Detach();
-				CreateThread(0, 0, UserToProxyThread, (LPVOID)vSocketPair[vSocketPair.size() - 1], 0, 0);
+			while (1) {
+				SocketPair* socketPair = new SocketPair;
+				socketPair->blackList.open(BLACKLIST, ios::in);
+
+				Server.Accept(socketPair->Client);
+
+				socketPair->Socket = socketPair->Client.Detach();
+				CreateThread(0, 0, UserToProxyThread, (LPVOID)socketPair, 0, 0);
 			}
+			
+			Server.Close();
 		}
 	}
     return 0;
