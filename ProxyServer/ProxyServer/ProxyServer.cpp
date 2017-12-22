@@ -48,7 +48,7 @@ bool goodWeb(string host, fstream &blackList) {
 		if (list == host)
 			return false;
 		string test;
-		if (list == test.append(host, host.length() - list.length(), list.length()) && host[host.length() - list.length() - 1] == '.')
+		if (host.length() > list.length() && list == test.append(host, host.length() - list.length(), list.length()) && host[host.length() - list.length() - 1] == '.')
 			return false;
 	}
 	return true;
@@ -61,7 +61,7 @@ DWORD WINAPI UserToProxyThread(LPVOID m_SocketPair)
 
 	char message[513];
 
-	socketPair->Client.Receive(message, 512);
+	socketPair->Client.Receive(message, 513);
 
 	stringstream s;
 	string hostTemp;
@@ -97,7 +97,7 @@ DWORD WINAPI UserToProxyThread(LPVOID m_SocketPair)
 	string bufferSender(message);
 
 	bufferSender.erase(bufferSender.begin() + 4, bufferSender.begin() + 4 + 7 + host.length());
-	bufferSender += "\r\n\r\n";
+	bufferSender = bufferSender.substr(0, bufferSender.find(" (")) + "\r\n\r\n";
 	socketPair->Browser.Send(bufferSender.c_str(), bufferSender.length());
 
 	while (1)
@@ -162,7 +162,7 @@ int main()
 			while (1) {
 				SocketPair* socketPair = new SocketPair;
 				socketPair->blackList.open(BLACKLIST, ios::in);
-
+				if (!socketPair->blackList.good()) return 0;
 				Server.Accept(socketPair->Client);
 
 				socketPair->Socket = socketPair->Client.Detach();
