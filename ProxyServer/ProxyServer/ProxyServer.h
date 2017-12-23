@@ -15,7 +15,7 @@ class SocketPair
 {
 public:
 	CSocket Client;
-	CSocket Browser;
+	CSocket Proxy;
 	SOCKET Socket;
 	fstream blackList;
 

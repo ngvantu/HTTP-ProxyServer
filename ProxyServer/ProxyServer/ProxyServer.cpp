@@ -57,11 +57,11 @@ bool goodWeb(string host, fstream &blackList) {
 DWORD WINAPI UserToProxyThread(LPVOID m_SocketPair)
 {
 	SocketPair* socketPair = (SocketPair*)m_SocketPair;
-	socketPair->Client.Attach(socketPair->Socket);
+	socketPair->Proxy.Attach(socketPair->Socket);
 
-	char message[513];
+	char message[1000];
 
-	socketPair->Client.Receive(message, 513);
+	socketPair->Proxy.Receive(message, 1000);
 
 	stringstream s;
 	string hostTemp;
@@ -72,8 +72,8 @@ DWORD WINAPI UserToProxyThread(LPVOID m_SocketPair)
 	if (hostTemp.find("http://") != -1)
 		host.append(hostTemp, 7, hostTemp.find('/', 7) - 7);
 	else {
+		socketPair->Proxy.Close();
 		socketPair->Client.Close();
-		socketPair->Browser.Close();
 		socketPair->blackList.close();
 		delete socketPair;
 		return 1;
@@ -83,36 +83,36 @@ DWORD WINAPI UserToProxyThread(LPVOID m_SocketPair)
 	if (!goodWeb(host, socketPair->blackList))
 	{
 		string error403 = message_403();
-		socketPair->Client.Send(error403.c_str(), error403.length());
+		socketPair->Proxy.Send(error403.c_str(), error403.length());
+		socketPair->Proxy.Close();
 		socketPair->Client.Close();
-		socketPair->Browser.Close();
 		socketPair->blackList.close();
 		delete socketPair;
 		return 1;
 	}
 
-	socketPair->Browser.Create();
-	socketPair->Browser.Connect(stringToWCHAR(host), 80);
+	socketPair->Client.Create();
+	socketPair->Client.Connect(stringToWCHAR(host), 80);
 
 	string bufferSender(message);
 
 	bufferSender.erase(bufferSender.begin() + 4, bufferSender.begin() + 4 + 7 + host.length());
-	bufferSender = bufferSender.substr(0, bufferSender.find(" (")) + "\r\n\r\n";
-	socketPair->Browser.Send(bufferSender.c_str(), bufferSender.length());
+	//bufferSender = bufferSender.substr(0, bufferSender.find(" (")) + "\r\n\r\n";
+	socketPair->Client.Send(bufferSender.c_str(), bufferSender.length());
 
 	while (1)
 	{
 		char bufferReceiver[513];
-		memset(bufferReceiver, 0, 512);
+		memset(bufferReceiver, 0, 513);
 
-		int flag = socketPair->Browser.Receive(bufferReceiver, 512);
+		int flag = socketPair->Client.Receive(bufferReceiver, 513);
 		if (flag == 0 || flag == -1)
 			break;
 
-		socketPair->Client.Send(bufferReceiver, flag);
+		socketPair->Proxy.Send(bufferReceiver, flag);
 	}
+	socketPair->Proxy.Close();
 	socketPair->Client.Close();
-	socketPair->Browser.Close();
 	socketPair->blackList.close();
 	delete socketPair;
 	return 1;
@@ -137,7 +137,7 @@ int main()
 		{
 			if (AfxSocketInit() == FALSE)
 			{
-				cout << "Khong the khoi tao Socket Libraray";
+				cout << "Socket Library initialization failed" << endl;
 				return -1;
 			}
 
@@ -145,27 +145,26 @@ int main()
 
 			if (Server.Create(8888) == 0)
 			{
-				cout << "Khoi tao that bai !!!" << endl;
+				cout << "Server initialization failed !!!" << endl;
 				cout << Server.GetLastError();
 				return -1;
 			}
 
-			cout << "Server khoi tao thanh cong !!!" << endl;
+			cout << "Server initialization successful !!!" << endl;
 			if (Server.Listen(1) == FALSE)
 			{
-				cout << "Khong the lang nghe tren port nay !!!" << endl;
+				cout << "Server cannot listen !!!" << endl;
 				Server.Close();
 				return FALSE;
 			}
-
 
 			while (1) {
 				SocketPair* socketPair = new SocketPair;
 				socketPair->blackList.open(BLACKLIST, ios::in);
 				if (!socketPair->blackList.good()) return 0;
-				Server.Accept(socketPair->Client);
+				Server.Accept(socketPair->Proxy);
 
-				socketPair->Socket = socketPair->Client.Detach();
+				socketPair->Socket = socketPair->Proxy.Detach();
 				CreateThread(0, 0, UserToProxyThread, (LPVOID)socketPair, 0, 0);
 			}
 			
